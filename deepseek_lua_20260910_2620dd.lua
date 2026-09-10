@@ -1,56 +1,67 @@
 -- ═══════════════════════════════════════════
--- Blade Ball Auto Parry (RemoteEvent)
+-- Blade Ball Script v2
+-- UI загружается первым, с защитой от падения
 -- ═══════════════════════════════════════════
 
+-- Загружаем UI с pcall, чтобы увидеть ошибку
+local success, Rayfield = pcall(function()
+    return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+end)
+
+if not success or not Rayfield then
+    warn("[OZZSE] Rayfield load failed. Trying alternative...")
+    -- Альтернативный загрузчик
+    success, Rayfield = pcall(function()
+        return loadstring(game:HttpGet('https://raw.githubusercontent.com/shlexware/Rayfield/main/source'))()
+    end)
+end
+
+if not Rayfield then
+    warn("[OZZSE] FATAL: Could not load UI library. Check executor UNC support.")
+    return
+end
+
+-- Дальше создаём окно
+local Window = Rayfield:CreateWindow({
+    Name = "Blade Ball | OZZSE",
+    LoadingTitle = "Loading...",
+    LoadingSubtitle = "by OZZSE",
+    ConfigurationSaving = { Enabled = false },
+    KeySystem = false
+})
+
+-- ═══ СЕРВИСЫ ═══
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local Player = Players.LocalPlayer
-local Balls = workspace:WaitForChild("Balls")
+local Balls = workspace:WaitForChild("Balls", 10)
 local Remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
 
 -- ═══ НАСТРОЙКИ ═══
 local CONFIG = {
-    PARRY_DISTANCE = 10,     -- дистанция срабатывания (studs)
-    PARRY_COOLDOWN = 0.15,   -- пауза между парированиями
+    AutoParry = true,
+    ParryDistance = 10,
+    ParryCooldown = 0.1,
 }
 
--- ═══ НАХОДИМ РЕМОУТ ПАРИРОВАНИЯ ═══
--- Пробуем несколько возможных названий
+-- ═══ ПОИСК РЕМОУТА ═══
 local ParryRemote = nil
-local remoteNames = {"ParryButtonPress", "Parry", "Block", "ParryEvent"}
-
-for _, name in ipairs(remoteNames) do
-    local remote = Remotes:FindFirstChild(name)
-    if remote and remote:IsA("RemoteEvent") then
-        ParryRemote = remote
-        print("[OZZSE] Found Parry Remote:", name)
+for _, name in ipairs({"ParryButtonPress", "Parry", "Block"}) do
+    local r = Remotes and Remotes:FindFirstChild(name)
+    if r and r:IsA("RemoteEvent") then
+        ParryRemote = r
         break
     end
 end
 
-if not ParryRemote then
-    -- Если не нашли, пробуем поискать в других местах
-    for _, obj in ipairs(Remotes:GetDescendants()) do
-        if obj:IsA("RemoteEvent") and string.find(string.lower(obj.Name), "parry") then
-            ParryRemote = obj
-            print("[OZZSE] Found Parry Remote (search):", obj.Name)
-            break
-        end
-    end
-end
-
-if not ParryRemote then
-    warn("[OZZSE] Parry RemoteEvent not found! Check game version.")
-    return
-end
-
 -- ═══ ПРОВЕРКА МЯЧА ═══
 local function VerifyBall(ball)
-    return typeof(ball) == "Instance" 
-        and ball:IsA("BasePart") 
-        and ball:IsDescendantOf(Balls) 
+    return typeof(ball) == "Instance"
+        and ball:IsA("BasePart")
+        and ball:IsDescendantOf(Balls)
         and ball:GetAttribute("realBall") == true
 end
 
@@ -61,35 +72,63 @@ end
 
 -- ═══ ПАРИРОВАНИЕ ═══
 local function Parry()
-    ParryRemote:FireServer()
+    if ParryRemote then
+        ParryRemote:FireServer()
+    else
+        -- Fallback через эмуляцию мыши
+        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+        task.wait(0.01)
+        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+    end
 end
 
 -- ═══ ОСНОВНОЙ ЦИКЛ ═══
 local lastParry = 0
 
 RunService.Heartbeat:Connect(function()
-    if tick() - lastParry < CONFIG.PARRY_COOLDOWN then return end
-    
-    local character = Player.Character
-    if not character then return end
-    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not CONFIG.AutoParry then return end
+    if tick() - lastParry < CONFIG.ParryCooldown then return end
+
+    local char = Player.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-    
-    -- Ищем активный мяч, который летит на нас
+
     for _, ball in ipairs(Balls:GetChildren()) do
-        if VerifyBall(ball) then
-            -- Проверяем, летит ли мяч в нашу сторону (через Highlight)
-            if IsTarget() then
-                local distance = (hrp.Position - ball.Position).Magnitude
-                
-                if distance <= CONFIG.PARRY_DISTANCE then
-                    lastParry = tick()
-                    Parry()
-                    break
-                end
+        if VerifyBall(ball) and IsTarget() then
+            local dist = (hrp.Position - ball.Position).Magnitude
+            if dist <= CONFIG.ParryDistance then
+                lastParry = tick()
+                Parry()
+                break
             end
         end
     end
 end)
 
-print("[OZZSE] Auto Parry loaded. Monitoring balls...")
+-- ═══ UI ═══
+local Tab = Window:CreateTab("Combat", 4483362458)
+Tab:CreateSection("Auto Parry")
+
+Tab:CreateToggle({
+    Name = "Enable Auto Parry",
+    CurrentValue = CONFIG.AutoParry,
+    Flag = "AutoParry",
+    Callback = function(v) CONFIG.AutoParry = v end
+})
+
+Tab:CreateSlider({
+    Name = "Parry Distance",
+    Range = {1, 30},
+    Increment = 1,
+    Suffix = " studs",
+    CurrentValue = CONFIG.ParryDistance,
+    Flag = "ParryDist",
+    Callback = function(v) CONFIG.ParryDistance = v end
+})
+
+Rayfield:Notify({
+    Title = "OZZSE",
+    Content = "Blade Ball script loaded",
+    Duration = 3
+})
