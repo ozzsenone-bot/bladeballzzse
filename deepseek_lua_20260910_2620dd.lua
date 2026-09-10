@@ -1,15 +1,11 @@
 -- ═══════════════════════════════════════════════════════
--- Blade Ball Script with Universal Anti-Cheat Bypass
--- Load bypass first, then combat logic
+-- Blade Ball + Universal Anti-Cheat Bypass
 -- ═══════════════════════════════════════════════════════
 
--- ═══════════════════════════════════════════
 -- ЧАСТЬ 1: АНТИЧИТ-ОБХОД
--- ═══════════════════════════════════════════
 local bypass = {}
 
 -- Спуфинг свойств персонажа (WalkSpeed, JumpPower)
--- Античит проверяет их на аномалии — возвращаем оригинальные значения
 local oldNamecall
 oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
     local method = getnamecallmethod()
@@ -24,7 +20,7 @@ oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
     if method == "GetPropertyChangedSignal" and self:IsA("Humanoid") then
         local prop = args[1]
         if prop == "WalkSpeed" or prop == "JumpPower" then
-            return nil -- не даём античиту подписаться на изменения
+            return nil
         end
     end
     
@@ -36,21 +32,14 @@ local oldGetinfo = debug.getinfo
 debug.getinfo = newcclosure(function(...)
     local info = oldGetinfo(...)
     if info and info.source then
-        info.source = "=[C]" -- маскируем как C-функцию
+        info.source = "=[C]"
     end
     return info
 end)
 
--- Отключение соединений, которые античит использует для мониторинга
-for _, conn in ipairs(getconnections(game:GetService("Players").LocalPlayer.CharacterAdded)) do
-    -- Оставляем только наши соединения
-end
-
 print("[OZZSE] Anti-Cheat Bypass loaded")
 
--- ═══════════════════════════════════════════
 -- ЧАСТЬ 2: КОНФИГ И СЕРВИСЫ
--- ═══════════════════════════════════════════
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
@@ -69,9 +58,7 @@ local Config = {
     SpamDelay     = 0.02,
 }
 
--- ═══════════════════════════════════════════
 -- ЧАСТЬ 3: АНТИЧИТ-СОВМЕСТИМОЕ ПАРИРОВАНИЕ
--- ═══════════════════════════════════════════
 local function verifyBall(ball)
     return typeof(ball) == "Instance"
         and ball:IsA("BasePart")
@@ -81,7 +68,6 @@ end
 
 -- Безопасная эмуляция ввода (не палится)
 local function safeInput(key)
-    -- Используем task.spawn с рандомной задержкой, чтобы не было паттерна
     task.spawn(function()
         local jitter = math.random(5, 20) / 1000
         task.wait(jitter)
@@ -94,19 +80,15 @@ local function safeInput(key)
 end
 
 local function parry()
-    -- Пробуем RemoteEvent, если найден
     local parryRemote = Remotes:FindFirstChild("ParryButtonPress") 
         or Remotes:FindFirstChild("Parry")
     if parryRemote and parryRemote:IsA("RemoteEvent") then
         pcall(function() parryRemote:FireServer() end)
     end
-    -- Дублируем нажатием клавиши с рандомизацией
     safeInput(Enum.KeyCode.F)
 end
 
--- ═══════════════════════════════════════════
 -- ЧАСТЬ 4: ОСНОВНОЙ ЦИКЛ
--- ═══════════════════════════════════════════
 local lastParry = 0
 
 RunService.Heartbeat:Connect(function()
@@ -121,7 +103,6 @@ RunService.Heartbeat:Connect(function()
     for _, ball in ipairs(Balls:GetChildren()) do
         if verifyBall(ball) then
             local dist = (hrp.Position - ball.Position).Magnitude
-            -- Рандомизация дистанции, чтобы не было паттерна
             local randomDist = Config.ParryDistance + math.random(-2, 2)
             if dist <= randomDist then
                 lastParry = tick()
@@ -132,9 +113,7 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- ═══════════════════════════════════════════
 -- ЧАСТЬ 5: AUTO SPAM
--- ═══════════════════════════════════════════
 local spamActive = false
 local spamThread = nil
 
@@ -158,9 +137,7 @@ local function stopSpam()
     end
 end
 
--- ═══════════════════════════════════════════
--- ЧАСТЬ 6: ПРОСТОЙ UI (минимальный, чтобы не палиться)
--- ═══════════════════════════════════════════
+-- ЧАСТЬ 6: ПРОСТОЙ UI
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "OZZSE_UI"
 screenGui.ResetOnSpawn = false
@@ -228,35 +205,4 @@ closeBtn.MouseButton1Click:Connect(function()
     screenGui.Enabled = false
 end)
 
--- Перетаскивание окна
-local dragging, dragInput, dragStart, startPos
-mainFrame.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-        dragStart = input.Position
-        startPos = mainFrame.Position
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
-        end)
-    end
-end)
-
-mainFrame.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement then
-        dragInput = input
-    end
-end)
-
-game:GetService("UserInputService").InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        local delta = input.Position - dragStart
-        mainFrame.Position = UDim2.new(
-            startPos.X.Scale, startPos.X.Offset + delta.X,
-            startPos.Y.Scale, startPos.Y.Offset + delta.Y
-        )
-    end
-end)
-
-print("[OZZSE] Script loaded with bypass. RightControl = toggle GUI")
+print("[OZZSE] Script loaded with bypass.")
