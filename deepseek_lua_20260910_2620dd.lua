@@ -1,22 +1,50 @@
 -- ═══════════════════════════════════════════
--- Blade Ball Auto Parry (Keypress via F)
+-- Blade Ball Auto Parry (RemoteEvent)
 -- ═══════════════════════════════════════════
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
-local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local Player = Players.LocalPlayer
 local Balls = workspace:WaitForChild("Balls")
+local Remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
 
 -- ═══ НАСТРОЙКИ ═══
 local CONFIG = {
-    PARRY_DISTANCE = 5,      -- дистанция в studs, при которой жать F (5 = метр)
-    PARry_COOLDOWN = 0.1,    -- пауза между нажатиями
-    PARRY_KEY = Enum.KeyCode.F,
-    CHECK_INTERVAL = 1/60,   -- частота проверки (60 раз в сек)
+    PARRY_DISTANCE = 10,     -- дистанция срабатывания (studs)
+    PARRY_COOLDOWN = 0.15,   -- пауза между парированиями
 }
+
+-- ═══ НАХОДИМ РЕМОУТ ПАРИРОВАНИЯ ═══
+-- Пробуем несколько возможных названий
+local ParryRemote = nil
+local remoteNames = {"ParryButtonPress", "Parry", "Block", "ParryEvent"}
+
+for _, name in ipairs(remoteNames) do
+    local remote = Remotes:FindFirstChild(name)
+    if remote and remote:IsA("RemoteEvent") then
+        ParryRemote = remote
+        print("[OZZSE] Found Parry Remote:", name)
+        break
+    end
+end
+
+if not ParryRemote then
+    -- Если не нашли, пробуем поискать в других местах
+    for _, obj in ipairs(Remotes:GetDescendants()) do
+        if obj:IsA("RemoteEvent") and string.find(string.lower(obj.Name), "parry") then
+            ParryRemote = obj
+            print("[OZZSE] Found Parry Remote (search):", obj.Name)
+            break
+        end
+    end
+end
+
+if not ParryRemote then
+    warn("[OZZSE] Parry RemoteEvent not found! Check game version.")
+    return
+end
 
 -- ═══ ПРОВЕРКА МЯЧА ═══
 local function VerifyBall(ball)
@@ -28,46 +56,40 @@ end
 
 -- ═══ ПРОВЕРКА ЦЕЛИ ═══
 local function IsTarget()
-    -- Highlight появляется, когда мяч летит на тебя [citation:1][citation:5]
     return Player.Character and Player.Character:FindFirstChild("Highlight") ~= nil
 end
 
--- ═══ ЭМУЛЯЦИЯ НАЖАТИЯ F ═══
+-- ═══ ПАРИРОВАНИЕ ═══
 local function Parry()
-    -- Нажимаем F (true = зажатие)
-    VirtualInputManager:SendKeyEvent(true, CONFIG.PARRY_KEY, false, game)
-    task.wait(0.01)
-    -- Отпускаем F (false = отпускание)
-    VirtualInputManager:SendKeyEvent(false, CONFIG.PARRY_KEY, false, game)
+    ParryRemote:FireServer()
 end
 
 -- ═══ ОСНОВНОЙ ЦИКЛ ═══
 local lastParry = 0
 
 RunService.Heartbeat:Connect(function()
-    -- Проверка кулдауна
     if tick() - lastParry < CONFIG.PARRY_COOLDOWN then return end
     
-    -- Проверка, что мы вообще в игре
     local character = Player.Character
     if not character then return end
     local hrp = character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
     
-    -- Ищем активный мяч
+    -- Ищем активный мяч, который летит на нас
     for _, ball in ipairs(Balls:GetChildren()) do
-        if VerifyBall(ball) and IsTarget() then
-            -- Считаем расстояние от нас до мяча
-            local distance = (hrp.Position - ball.Position).Magnitude
-            
-            -- Если мяч ближе чем PARRY_DISTANCE studs — жмём F
-            if distance <= CONFIG.PARRY_DISTANCE then
-                lastParry = tick()
-                Parry()
-                break
+        if VerifyBall(ball) then
+            -- Проверяем, летит ли мяч в нашу сторону (через Highlight)
+            if IsTarget() then
+                local distance = (hrp.Position - ball.Position).Magnitude
+                
+                if distance <= CONFIG.PARRY_DISTANCE then
+                    lastParry = tick()
+                    Parry()
+                    break
+                end
             end
         end
     end
 end)
 
-print("[OZZSE] Auto Parry loaded. Press F will be simulated.")
+print("[OZZSE] Auto Parry loaded. Monitoring balls...")
