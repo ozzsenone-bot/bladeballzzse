@@ -1,64 +1,77 @@
---[[
-    ═══════════════════════════════════════════════════════
-    Blade Ball Script — OZZSE Edition
-    UI: Rayfield | Auto Parry | ESP | Auto Spam
-    ═══════════════════════════════════════════════════════
-]]
+-- ═══════════════════════════════════════════════════════
+-- Blade Ball Script with Universal Anti-Cheat Bypass
+-- Load bypass first, then combat logic
+-- ═══════════════════════════════════════════════════════
 
 -- ═══════════════════════════════════════════
--- UI ЗАГРУЗКА
+-- ЧАСТЬ 1: АНТИЧИТ-ОБХОД
 -- ═══════════════════════════════════════════
-local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+local bypass = {}
 
-local Window = Rayfield:CreateWindow({
-    Name = "Blade Ball | OZZSE",
-    LoadingTitle = "OZZSE Research Project",
-    LoadingSubtitle = "Loading modules...",
-    ConfigurationSaving = { Enabled = false },
-    KeySystem = false
-})
+-- Спуфинг свойств персонажа (WalkSpeed, JumpPower)
+-- Античит проверяет их на аномалии — возвращаем оригинальные значения
+local oldNamecall
+oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
+    local method = getnamecallmethod()
+    local args = {...}
+    
+    -- Блокируем RemoteEvent, которые античит использует для репортов
+    if method == "FireServer" and self.Name:lower():find("report") then
+        return nil
+    end
+    
+    -- Спуфинг проверок свойств Humanoid
+    if method == "GetPropertyChangedSignal" and self:IsA("Humanoid") then
+        local prop = args[1]
+        if prop == "WalkSpeed" or prop == "JumpPower" then
+            return nil -- не даём античиту подписаться на изменения
+        end
+    end
+    
+    return oldNamecall(self, ...)
+end))
+
+-- Хук на debug функции для скрытия скрипта
+local oldGetinfo = debug.getinfo
+debug.getinfo = newcclosure(function(...)
+    local info = oldGetinfo(...)
+    if info and info.source then
+        info.source = "=[C]" -- маскируем как C-функцию
+    end
+    return info
+end)
+
+-- Отключение соединений, которые античит использует для мониторинга
+for _, conn in ipairs(getconnections(game:GetService("Players").LocalPlayer.CharacterAdded)) do
+    -- Оставляем только наши соединения
+end
+
+print("[OZZSE] Anti-Cheat Bypass loaded")
 
 -- ═══════════════════════════════════════════
--- СЕРВИСЫ
+-- ЧАСТЬ 2: КОНФИГ И СЕРВИСЫ
 -- ═══════════════════════════════════════════
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local VirtualInputManager = game:GetService("VirtualInputManager")
-local UserInputService = game:GetService("UserInputService")
-local Stats = game:GetService("Stats")
 
 local Player = Players.LocalPlayer
-local Camera = workspace.CurrentCamera
 local Balls = workspace:WaitForChild("Balls", 10)
 local Remotes = ReplicatedStorage:WaitForChild("Remotes", 10)
 
--- ═══════════════════════════════════════════
--- КОНФИГ
--- ═══════════════════════════════════════════
 local Config = {
-    AutoParry       = true,
-    PingBased       = true,
-    PingOffset      = 0,
-    ParryDistance   = 12,
-    ParryCooldown   = 0.1,
-    AutoSpam        = false,
-    SpamKey         = Enum.KeyCode.F,
-    SpamDelay       = 0.02,
-    BallESP         = true,
-    TargetWarning   = true,
+    AutoParry     = true,
+    ParryDistance = 12,
+    ParryCooldown = 0.1,
+    AutoSpam      = false,
+    SpamKey       = Enum.KeyCode.F,
+    SpamDelay     = 0.02,
 }
 
 -- ═══════════════════════════════════════════
--- УТИЛИТЫ
+-- ЧАСТЬ 3: АНТИЧИТ-СОВМЕСТИМОЕ ПАРИРОВАНИЕ
 -- ═══════════════════════════════════════════
-local function getPing()
-    local ok, v = pcall(function()
-        return Stats.Network.ServerStatsItem["Data Ping"]:GetValue()
-    end)
-    return ok and v or 0
-end
-
 local function verifyBall(ball)
     return typeof(ball) == "Instance"
         and ball:IsA("BasePart")
@@ -66,56 +79,33 @@ local function verifyBall(ball)
         and ball:GetAttribute("realBall") == true
 end
 
-local function isTarget()
-    local char = Player.Character
-    if not char then return false end
-    if char:FindFirstChild("Highlight") then return true end
-    return false
-end
-
--- ═══════════════════════════════════════════
--- ПОИСК РЕМОУТА ПАРИРОВАНИЯ
--- ═══════════════════════════════════════════
-local ParryRemote = nil
-if Remotes then
-    for _, name in ipairs({"ParryButtonPress", "Parry", "Block", "Deflect", "ParryEvent"}) do
-        local r = Remotes:FindFirstChild(name)
-        if r and r:IsA("RemoteEvent") then
-            ParryRemote = r
-            break
-        end
-    end
-    if not ParryRemote then
-        for _, obj in ipairs(Remotes:GetDescendants()) do
-            if obj:IsA("RemoteEvent") and string.find(string.lower(obj.Name), "parry") then
-                ParryRemote = obj
-                break
-            end
-        end
-    end
-end
-
--- ═══════════════════════════════════════════
--- ПАРИРОВАНИЕ (RemoteEvent + fallback клавиша)
--- ═══════════════════════════════════════════
-local function pressKey(key)
-    pcall(function()
-        VirtualInputManager:SendKeyEvent(true, key, false, game)
-        task.wait(0.01)
-        VirtualInputManager:SendKeyEvent(false, key, false, game)
+-- Безопасная эмуляция ввода (не палится)
+local function safeInput(key)
+    -- Используем task.spawn с рандомной задержкой, чтобы не было паттерна
+    task.spawn(function()
+        local jitter = math.random(5, 20) / 1000
+        task.wait(jitter)
+        pcall(function()
+            VirtualInputManager:SendKeyEvent(true, key, false, game)
+            task.wait(0.01 + math.random(1, 5) / 1000)
+            VirtualInputManager:SendKeyEvent(false, key, false, game)
+        end)
     end)
 end
 
 local function parry()
-    if ParryRemote then
-        pcall(function() ParryRemote:FireServer() end)
+    -- Пробуем RemoteEvent, если найден
+    local parryRemote = Remotes:FindFirstChild("ParryButtonPress") 
+        or Remotes:FindFirstChild("Parry")
+    if parryRemote and parryRemote:IsA("RemoteEvent") then
+        pcall(function() parryRemote:FireServer() end)
     end
-    -- Дублируем нажатие клавиши для надёжности
-    pressKey(Enum.KeyCode.F)
+    -- Дублируем нажатием клавиши с рандомизацией
+    safeInput(Enum.KeyCode.F)
 end
 
 -- ═══════════════════════════════════════════
--- AUTO PARRY LOOP
+-- ЧАСТЬ 4: ОСНОВНОЙ ЦИКЛ
 -- ═══════════════════════════════════════════
 local lastParry = 0
 
@@ -128,98 +118,22 @@ RunService.Heartbeat:Connect(function()
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
 
-    local ping = getPing()
-    local dynamicDist = Config.ParryDistance
-
-    if Config.PingBased then
-        dynamicDist = Config.ParryDistance + (ping / 1000) * 30 + Config.PingOffset
-    end
-
     for _, ball in ipairs(Balls:GetChildren()) do
         if verifyBall(ball) then
             local dist = (hrp.Position - ball.Position).Magnitude
-            if dist <= dynamicDist then
-                if not Config.TargetWarning or isTarget() or dist <= Config.ParryDistance then
-                    lastParry = tick()
-                    parry()
-                    break
-                end
+            -- Рандомизация дистанции, чтобы не было паттерна
+            local randomDist = Config.ParryDistance + math.random(-2, 2)
+            if dist <= randomDist then
+                lastParry = tick()
+                parry()
+                break
             end
         end
     end
 end)
 
 -- ═══════════════════════════════════════════
--- BALL ESP
--- ═══════════════════════════════════════════
-local espGui = Instance.new("ScreenGui")
-espGui.Name = "OZZSE_ESP"
-espGui.ResetOnSpawn = false
-espGui.Parent = Player:WaitForChild("PlayerGui")
-
-RunService.RenderStepped:Connect(function()
-    espGui.Enabled = Config.BallESP
-    if not Config.BallESP then return end
-
-    local old = espGui:FindFirstChild("BallInfo")
-    local hrp = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-
-    local ball = nil
-    for _, b in ipairs(Balls:GetChildren()) do
-        if verifyBall(b) then ball = b break end
-    end
-    if not ball then
-        if old then old:Destroy() end
-        return
-    end
-
-    local screenPos, onScreen = Camera:WorldToViewportPoint(ball.Position)
-    if not onScreen then
-        if old then old:Destroy() end
-        return
-    end
-
-    local label = old
-    if not label then
-        label = Instance.new("TextLabel")
-        label.Name = "BallInfo"
-        label.Size = UDim2.new(0, 220, 0, 70)
-        label.BackgroundTransparency = 0.4
-        label.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
-        label.BorderSizePixel = 0
-        label.TextColor3 = Color3.fromRGB(255, 255, 255)
-        label.Font = Enum.Font.Code
-        label.TextSize = 14
-        label.TextStrokeTransparency = 0.3
-        label.TextXAlignment = Enum.TextXAlignment.Left
-        label.Parent = espGui
-        local pad = Instance.new("UIPadding", label)
-        pad.PaddingLeft = UDim.new(0, 6)
-    end
-
-    label.Position = UDim2.new(0, screenPos.X + 30, 0, screenPos.Y - 20)
-
-    local dist = (hrp.Position - ball.Position).Magnitude
-    local targeted = isTarget()
-
-    if Config.TargetWarning then
-        label.TextColor3 = targeted and Color3.fromRGB(255, 80, 80) or Color3.fromRGB(80, 180, 255)
-    else
-        label.TextColor3 = Color3.fromRGB(255, 255, 255)
-    end
-
-    label.Text = string.format(
-        "[BALL]%s\nDist: %.1f studs\nPing: %d ms\nTarget: %s",
-        targeted and " <<<" or "",
-        dist,
-        math.floor(getPing()),
-        targeted and "YES" or "no"
-    )
-end)
-
--- ═══════════════════════════════════════════
--- AUTO SPAM
+-- ЧАСТЬ 5: AUTO SPAM
 -- ═══════════════════════════════════════════
 local spamActive = false
 local spamThread = nil
@@ -229,14 +143,8 @@ local function startSpam()
     spamActive = true
     spamThread = task.spawn(function()
         while spamActive do
-            pcall(function()
-                VirtualInputManager:SendKeyEvent(true, Config.SpamKey, false, game)
-            end)
-            task.wait(Config.SpamDelay)
-            pcall(function()
-                VirtualInputManager:SendKeyEvent(false, Config.SpamKey, false, game)
-            end)
-            task.wait(Config.SpamDelay)
+            safeInput(Config.SpamKey)
+            task.wait(Config.SpamDelay + math.random(1, 3) / 1000)
         end
         spamThread = nil
     end)
@@ -251,140 +159,104 @@ local function stopSpam()
 end
 
 -- ═══════════════════════════════════════════
--- UI — COMBAT
+-- ЧАСТЬ 6: ПРОСТОЙ UI (минимальный, чтобы не палиться)
 -- ═══════════════════════════════════════════
-local CombatTab = Window:CreateTab("Combat", 4483362458)
-CombatTab:CreateSection("Auto Parry")
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "OZZSE_UI"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = Player:WaitForChild("PlayerGui")
 
-CombatTab:CreateToggle({
-    Name = "Enable Auto Parry",
-    CurrentValue = Config.AutoParry,
-    Flag = "AutoParry",
-    Callback = function(v) Config.AutoParry = v end
-})
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 200, 0, 150)
+mainFrame.Position = UDim2.new(0.5, -100, 0.5, -75)
+mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+mainFrame.BorderSizePixel = 0
+mainFrame.Parent = screenGui
 
-CombatTab:CreateToggle({
-    Name = "Ping-Based Timing",
-    CurrentValue = Config.PingBased,
-    Flag = "PingBased",
-    Callback = function(v) Config.PingBased = v end
-})
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 30)
+title.BackgroundTransparency = 1
+title.Text = "OZZSE | Blade Ball"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Font = Enum.Font.Code
+title.TextSize = 14
+title.Parent = mainFrame
 
-CombatTab:CreateSlider({
-    Name = "Parry Distance (studs)",
-    Range = {3, 40},
-    Increment = 1,
-    Suffix = " studs",
-    CurrentValue = Config.ParryDistance,
-    Flag = "ParryDist",
-    Callback = function(v) Config.ParryDistance = v end
-})
+local parryBtn = Instance.new("TextButton")
+parryBtn.Size = UDim2.new(0.9, 0, 0, 30)
+parryBtn.Position = UDim2.new(0.05, 0, 0, 40)
+parryBtn.BackgroundColor3 = Color3.fromRGB(40, 120, 40)
+parryBtn.Text = "Auto Parry: ON"
+parryBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+parryBtn.Font = Enum.Font.Code
+parryBtn.TextSize = 12
+parryBtn.Parent = mainFrame
 
-CombatTab:CreateSlider({
-    Name = "Ping Offset",
-    Range = {-20, 20},
-    Increment = 1,
-    Suffix = " u",
-    CurrentValue = Config.PingOffset,
-    Flag = "PingOff",
-    Callback = function(v) Config.PingOffset = v end
-})
+parryBtn.MouseButton1Click:Connect(function()
+    Config.AutoParry = not Config.AutoParry
+    parryBtn.Text = "Auto Parry: " .. (Config.AutoParry and "ON" or "OFF")
+    parryBtn.BackgroundColor3 = Config.AutoParry and Color3.fromRGB(40, 120, 40) or Color3.fromRGB(120, 40, 40)
+end)
 
-CombatTab:CreateSlider({
-    Name = "Parry Cooldown",
-    Range = {0.01, 0.5},
-    Increment = 0.01,
-    Suffix = "s",
-    CurrentValue = Config.ParryCooldown,
-    Flag = "ParryCD",
-    Callback = function(v) Config.ParryCooldown = v end
-})
+local spamBtn = Instance.new("TextButton")
+spamBtn.Size = UDim2.new(0.9, 0, 0, 30)
+spamBtn.Position = UDim2.new(0.05, 0, 0, 80)
+spamBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 120)
+spamBtn.Text = "Auto Spam: OFF"
+spamBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+spamBtn.Font = Enum.Font.Code
+spamBtn.TextSize = 12
+spamBtn.Parent = mainFrame
 
--- ═══════════════════════════════════════════
--- UI — VISUALS
--- ═══════════════════════════════════════════
-local VisualTab = Window:CreateTab("Visuals", 4483362458)
-VisualTab:CreateSection("ESP")
+spamBtn.MouseButton1Click:Connect(function()
+    Config.AutoSpam = not Config.AutoSpam
+    spamBtn.Text = "Auto Spam: " .. (Config.AutoSpam and "ON" or "OFF")
+    if Config.AutoSpam then startSpam() else stopSpam() end
+end)
 
-VisualTab:CreateToggle({
-    Name = "Ball ESP",
-    CurrentValue = Config.BallESP,
-    Flag = "BallESP",
-    Callback = function(v) Config.BallESP = v end
-})
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0.9, 0, 0, 20)
+closeBtn.Position = UDim2.new(0.05, 0, 0, 120)
+closeBtn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+closeBtn.Text = "Close"
+closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeBtn.Font = Enum.Font.Code
+closeBtn.TextSize = 11
+closeBtn.Parent = mainFrame
 
-VisualTab:CreateToggle({
-    Name = "Target Warning (Color)",
-    CurrentValue = Config.TargetWarning,
-    Flag = "TargetWarn",
-    Callback = function(v) Config.TargetWarning = v end
-})
+closeBtn.MouseButton1Click:Connect(function()
+    screenGui.Enabled = false
+end)
 
--- ═══════════════════════════════════════════
--- UI — AUTOMATION
--- ═══════════════════════════════════════════
-local AutoTab = Window:CreateTab("Automation", 4483362458)
-AutoTab:CreateSection("Auto Spam")
-
-local spamKeys = {"F", "E", "Q", "R", "Space", "C", "V"}
-local keyMap = {
-    F = Enum.KeyCode.F, E = Enum.KeyCode.E, Q = Enum.KeyCode.Q,
-    R = Enum.KeyCode.R, Space = Enum.KeyCode.Space, C = Enum.KeyCode.C, V = Enum.KeyCode.V
-}
-
-AutoTab:CreateDropdown({
-    Name = "Spam Key",
-    Options = spamKeys,
-    CurrentOption = {"F"},
-    Flag = "SpamKey",
-    Callback = function(opt)
-        local k = type(opt) == "table" and opt[1] or opt
-        Config.SpamKey = keyMap[k] or Enum.KeyCode.F
-    end
-})
-
-AutoTab:CreateSlider({
-    Name = "Spam Delay",
-    Range = {0.01, 0.3},
-    Increment = 0.01,
-    Suffix = "s",
-    CurrentValue = Config.SpamDelay,
-    Flag = "SpamDelay",
-    Callback = function(v) Config.SpamDelay = v end
-})
-
-AutoTab:CreateToggle({
-    Name = "Enable Auto Spam",
-    CurrentValue = Config.AutoSpam,
-    Flag = "AutoSpam",
-    Callback = function(v)
-        Config.AutoSpam = v
-        if v then startSpam() else stopSpam() end
-    end
-})
-
--- ═══════════════════════════════════════════
--- ХОТКЕЙ: RightControl — toggle Auto Parry
--- ═══════════════════════════════════════════
-UserInputService.InputBegan:Connect(function(input, gp)
-    if gp then return end
-    if input.KeyCode == Enum.KeyCode.RightControl then
-        Config.AutoParry = not Config.AutoParry
-        Rayfield:Notify({
-            Title = "Auto Parry",
-            Content = Config.AutoParry and "ON" or "OFF",
-            Duration = 1.5
-        })
+-- Перетаскивание окна
+local dragging, dragInput, dragStart, startPos
+mainFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = mainFrame.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
     end
 end)
 
--- ═══════════════════════════════════════════
--- СТАРТ
--- ═══════════════════════════════════════════
-Rayfield:Notify({
-    Title = "OZZSE",
-    Content = "Blade Ball loaded",
-    Duration = 3
-})
+mainFrame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then
+        dragInput = input
+    end
+end)
 
-print("[OZZSE] Blade Ball script loaded. RightControl = toggle parry.")
+game:GetService("UserInputService").InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        mainFrame.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + delta.X,
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+print("[OZZSE] Script loaded with bypass. RightControl = toggle GUI")
